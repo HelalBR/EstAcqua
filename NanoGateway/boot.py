@@ -7,7 +7,7 @@ Bibliotecas importadas:
 	pycom
 */
 
-# Importando as bibliotecas
+# Importando bibliotecas
 
 from machine import UART
 import machine
