@@ -28,5 +28,5 @@ if __name__ == '__main__':
     	nanogw.start()
 	
 	# Se estiver conectado via terminal ao LoPy4, pressione Enter para utilizar o REPL
-    	nanogw._log('Pressione Enter para utilizar o RPL')
+    	nanogw._log('Pressione Enter para utilizar o REPL')
     	input()
