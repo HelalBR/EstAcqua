@@ -6,6 +6,10 @@ Bibliotecas importadas:
 	machine
 	ubinascii
 */
+					    
+# Importando bibliotecas
+import machine
+import ubinascii					    
 
 # Lendo o MAC Address da interface Wi-Fi do LoPy no formato hexadecimal, removendo ":" e utilizando letras maiúsculas
 # Formato AABBCCDDEEFF
