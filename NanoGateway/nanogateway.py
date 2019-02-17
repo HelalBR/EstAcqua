@@ -1,3 +1,23 @@
+/*
+Modulo principal do NanoGateway
+
+Biblitoecas importadas:
+	errno
+	machine
+	ubinascii
+	ujson
+	uos
+	usocket
+	utime
+	_thread
+	micropython
+	network
+	pycom
+	os
+*/
+
+
+# Importando Bibliotecas
 import errno
 import machine
 import ubinascii
@@ -14,17 +34,24 @@ import pycom
 from machine import SD
 import os
 
-# Tenta montar o cartao SD
+# Caso haja um cartão SD inserido na placa de expansão, será efetuada uma tentativa de montar o cartão
+# Se conseguir montar o cartão, a flaguSDcard será setada como true para que o LoPy4 saiba que pode
+# efetuar gravações dos dados recebidos no cartão uSD
+# Caso não consegui montar, o led embutido na placa ficará vermelho para que o operador saiba
+# que houve um erro durante a montagem do cartão uSD.
 try:
     sd = SD()
     os.mount(sd, '/sd')
-    print("microSD card mounted with free {:.3f} GB".format(os.getfree('/sd')/(1024*1024)))
+    print("Cartão uSD montado. Espaço livre: {:.3f} GB".format(os.getfree('/sd')/(1024*1024)))
     flaguSDcard = True
 except OSError as e:
     pycom.rgbled(0xFF0000)
-    print("Caught exception while mounting microSD. {}".format(e))
+    print("Ocorreu um erro durante a montagem do cartão SD. {}".format(e))
     flaguSDcard = False
 
+# Verifica se já existe um arquivo contendo os logs recebidos anteriormente. Se já existir, a flag exists é setada
+# como true e o LoPy4 sabe que não precisa criar um arquivo novo. Caso não existe, a flag é setada como false e o
+# arquivo de log é criado quando for salvar o primeiro dado recebido.
 try:
     f = open('/sd/recv.txt', "r")
     exists = True
@@ -33,6 +60,7 @@ except OSError as e:
     exists = False
 
 
+# Informações gerais sobre erros e formato JSON do satus do pacote recebido, dados do pacote recebido e envio de ACK
 PROTOCOL_VERSION = const(2)
 
 PUSH_DATA = const(0)
@@ -93,13 +121,13 @@ TX_ACK_PK = {
 
 
 class NanoGateway:
-    """
-    Nano gateway class, set up by default for use with TTN, but can be configured
-    for any other network supporting the Semtech Packet Forwarder.
-    Only required configuration is wifi_ssid and wifi_password which are used for
-    connecting to the Internet.
-    """
-
+    
+		/*
+		Inicialização da classe do NanoGayeway, configurada para ser utilizada com a TTN.
+		Os parâmetros estão definidos no arquivo config.py
+		Eventualmente a Pycom faz atualizações nesse arquivo. Sempre recorrer ao repositório oficial da Pycom
+		https://github.com/pycom/
+		*/
     def __init__(self, id, frequency, datarate, ssid, password, server, port, ntp_server, ntp_period):
         self.id = id
         self.server = server
@@ -140,43 +168,40 @@ class NanoGateway:
         self.rtc = machine.RTC()
 
     def start(self):
-        """
-        Starts the LoRaWAN nano gateway.
-        """
+				# Inicia o NanoGayeway LoRaWAN
+        self._log('Iniciando NanoGateway LoRaWAN com id: {}', self.id)
 
-        self._log('Starting LoRaWAN nano gateway with id: {}', self.id)
-
-        # setup WiFi as a station and connect
+        # Configura o Wi-Fi do LoPy4 para funcionar como uma estação e se conecta na rede Wi-Fi
         self.wlan = WLAN(mode=WLAN.STA)
         self._connect_to_wifi()
 
-        # get a time sync
-        self._log('Syncing time with {} ...', self.ntp_server)
+        # Sincroniza a hora com o servidor NTP
+        self._log('Sincronizando a hora com {} ...', self.ntp_server)
         self.rtc.ntp_sync(self.ntp_server, update_period=self.ntp_period)
         while not self.rtc.synced():
             utime.sleep_ms(50)
-        self._log("RTC NTP sync complete")
+        self._log("Sincronização completa")
 
-        # get the server IP and create an UDP socket
+        # Pega o IP do servidor utilizado como IoT Cloud e cria um socket UDP
         self.server_ip = usocket.getaddrinfo(self.server, self.port)[0][-1]
-        self._log('Opening UDP socket to {} ({}) port {}...', self.server, self.server_ip[0], self.server_ip[1])
+        self._log('Abrindo socket UDP para {} ({}) port {}...', self.server, self.server_ip[0], self.server_ip[1])
         self.sock = usocket.socket(usocket.AF_INET, usocket.SOCK_DGRAM, usocket.IPPROTO_UDP)
         self.sock.setsockopt(usocket.SOL_SOCKET, usocket.SO_REUSEADDR, 1)
         self.sock.setblocking(False)
 
-        # push the first time immediatelly
+        # Imediatamente após a criação do socket é criado e enviado um pacote com o status
         self._push_data(self._make_stat_packet())
 
-        # create the alarms
+        # Cria alarmes
         self.stat_alarm = Timer.Alarm(handler=lambda t: self._push_data(self._make_stat_packet()), s=60, periodic=True)
         self.pull_alarm = Timer.Alarm(handler=lambda u: self._pull_data(), s=25, periodic=True)
 
-        # start the UDP receive thread
+        # Inicia uma thread para receber pacotes UDP
         self.udp_stop = False
         _thread.start_new_thread(self._udp_thread, ())
 
-        # initialize the LoRa radio in LORA mode
-        self._log('Setting up the LoRa radio at {} Mhz using {}', self._freq_to_float(self.frequency), self.datarate)
+				# Inicia o radio LoRa utilizando o modo LORA
+        self._log('Iniciando LoRa com {} Mhz e datarate {}', self._freq_to_float(self.frequency), self.datarate)
         self.lora = LoRa(
             mode=LoRa.LORA,
             frequency=self.frequency,
@@ -187,38 +212,37 @@ class NanoGateway:
             tx_iq=True
         )
 
-        # create a raw LoRa socket
+        # Cria um socket cru do LoRa
         self.lora_sock = usocket.socket(usocket.AF_LORA, usocket.SOCK_RAW)
         self.lora_sock.setblocking(False)
         self.lora_tx_done = False
 
         self.lora.callback(trigger=(LoRa.RX_PACKET_EVENT | LoRa.TX_PACKET_EVENT), handler=self._lora_cb)
-        self._log('LoRaWAN nano gateway online')
+        self._log('NanoGateway LoRaWAN se encontra online')
 
     def stop(self):
-        """
-        Stops the LoRaWAN nano gateway.
-        """
-
+       
+				# Função para parar o NanoGayeway
+        self._log('Stopping...')
         self._log('Stopping...')
 
-        # send the LoRa radio to sleep
+        # Envia o radio LoRa para o modo SLEEP
         self.lora.callback(trigger=None, handler=None)
         self.lora.power_mode(LoRa.SLEEP)
 
-        # stop the NTP sync
+        # Para a sincronizacao com o servidor NTP
         self.rtc.ntp_sync(None)
 
-        # cancel all the alarms
+        # Cancela todos os alarmes criados
         self.stat_alarm.cancel()
         self.pull_alarm.cancel()
 
-        # signal the UDP thread to stop
+        # Envia um sinal para parar a thread UDP
         self.udp_stop = True
         while self.udp_stop:
             utime.sleep_ms(50)
 
-        # disable WLAN
+        # Se desconecta da rede Wi-Fi e desabilita o Wi-Fi do LoPy4
         self.wlan.disconnect()
         self.wlan.deinit()
 
