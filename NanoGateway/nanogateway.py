@@ -200,7 +200,7 @@ class NanoGateway:
         self.udp_stop = False
         _thread.start_new_thread(self._udp_thread, ())
 
-				# Inicia o radio LoRa utilizando o modo LORA
+	# Inicia o radio LoRa utilizando o modo LORA
         self._log('Iniciando LoRa com {} Mhz e datarate {}', self._freq_to_float(self.frequency), self.datarate)
         self.lora = LoRa(
             mode=LoRa.LORA,
@@ -246,20 +246,27 @@ class NanoGateway:
         self.wlan.disconnect()
         self.wlan.deinit()
 
+		# Funcao para se conectar na rede Wi-Fi. Apos se conectar o led embutido no LoPy4 fica na cor verde
+		# Funcao configurada para utilizar uma antena Wi-Fi externa acoplada ao LoPy4. Caso queira utilizar
+		# a antena interna do LoPy, substituir o parametro WLAN.EXT_ANT para WLAN.INT_ANT
     def _connect_to_wifi(self):
         self.wlan.init(antenna=WLAN.EXT_ANT)
         self.wlan.connect(self.ssid, auth=(None, self.password))
         while not self.wlan.isconnected():
             utime.sleep_ms(50)
-        self._log('WiFi connected to: {}', self.ssid)
+        self._log('WiFi conectado em: {}', self.ssid)
         pycom.rgbled(0x00ff00)
 
-    def _dr_to_sf(self, dr):
+    # Funcao que recebe o datarate e retorna qual o Spreading Factor
+		# Data rate definido da seguinte maneira: SFXBWZYV
+		def _dr_to_sf(self, dr):
         sf = dr[2:4]
         if sf[1] not in '0123456789':
             sf = sf[:1]
         return int(sf)
-
+		
+		# Função que recebe o datarate e retorna qual o Bandwidth
+		# Data rate definido da seguinte maneira: SFXBWZYV
     def _dr_to_bw(self, dr):
         bw = dr[-5:]
         if bw == 'BW125':
@@ -268,7 +275,9 @@ class NanoGateway:
             return LoRa.BW_250KHZ
         else:
             return LoRa.BW_500KHZ
-
+		
+		# Funcao que recebe o SF e o BW e retorna o datarate
+		# Data rate definido da seguinte maneira: SFXBWZYV
     def _sf_bw_to_dr(self, sf, bw):
         dr = 'SF' + str(sf)
         if bw == LoRa.BW_125KHZ:
@@ -278,11 +287,10 @@ class NanoGateway:
         else:
             return dr + 'BW500'
 
+		# Manipulador de retorno de chamada de eventos de rádio LoRa
+		# Funcao responsavel por receber os pacotes transmitidos ao NanoGateway
     def _lora_cb(self, lora):
-        """
-        LoRa radio events callback handler.
-        """
-
+      
         events = lora.events()
         if events & LoRa.RX_PACKET_EVENT:
             self.rxnb += 1
@@ -316,16 +324,10 @@ class NanoGateway:
                 coding_rate=LoRa.CODING_4_5,
                 tx_iq=True
                 )
-
+						
+		# Funcao para tratar um problema de imprecisao do micropython em divisoes com float.
     def _freq_to_float(self, frequency):
-        """
-        MicroPython has some inprecision when doing large float division.
-        To counter this, this method first does integer division until we
-        reach the decimal breaking point. This doesn't completely elimate
-        the issue in all cases, but it does help for a number of commonly
-        used frequencies.
-        """
-
+       
         divider = 6
         while divider > 0 and frequency % 10 == 0:
             frequency = frequency // 10
@@ -382,12 +384,10 @@ class NanoGateway:
                 self.sock.sendto(packet, self.server_ip)
             except Exception as ex:
                 self._log('PULL RSP ACK exception: {}', ex)
-
+								
+		# Funcao para agendar e transmitir um pacote downlink do servidor para o NanoGateway
     def _send_down_link(self, data, tmst, datarate, frequency):
-        """
-        Transmits a downlink message over LoRa.
-        """
-
+    
         self.lora.init(
             mode=LoRa.LORA,
             frequency=frequency,
@@ -407,12 +407,10 @@ class NanoGateway:
             datarate,
             data
         )
-
+				
+		# Thread UDP para ler e tratar os dados recebidos do servidor IoT
     def _udp_thread(self):
-        """
-        UDP thread, reads data from the server and handles it.
-        """
-
+   
         while not self.udp_stop:
             try:
                 data, src = self.sock.recvfrom(1024)
@@ -452,19 +450,17 @@ class NanoGateway:
             except Exception as ex:
                 self._log('UDP recv Exception: {}', ex)
 
-            # wait before trying to receive again
             utime.sleep_ms(UDP_THREAD_CYCLE_MS)
 
-        # we are to close the socket
+        # Fecha o socket e para a thread UDP
         self.sock.close()
         self.udp_stop = False
-        self._log('UDP thread stopped')
+        self._log('Thread UDP parada')
 
+		# Funcao de log no terminal
+		# Printa o tempo em ms, a mensagem recebido e os parametros da mensagem
+		# Utilizado pelo NanoGateway para gerar o log dos eventos ocorridos
     def _log(self, message, *args):
-        """
-        Outputs a log message to stdout.
-        """
-
         print('[{:>10.3f}] {}'.format(
             utime.ticks_ms() / 1000,
             str(message).format(*args)
